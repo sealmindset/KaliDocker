@@ -1,73 +1,98 @@
-# Kali Linux latest with useful tools
-FROM kalilinux/kali-rolling
+# Kali Linux Rolling - Base Tools
+# https://www.kali.org/docs/containers/official-kalilinux-docker-images/
+FROM kalilinux/kali-rolling:latest
 
-# Set working directory to /root
+LABEL maintainer="sealmindset" \
+    description="Kali Linux with essential security tools" \
+    version="2.0"
+
+# Set environment
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    GOROOT=/usr/lib/go \
+    GOPATH=/root/go \
+    PATH=/root/go/bin:/usr/lib/go/bin:$PATH
+
 WORKDIR /root
 
-# Update
+# Update and upgrade to latest
 RUN apt-get update && \
-    apt-get -y dist-upgrade && \
+    apt-get -y full-upgrade && \
     apt-get -y autoremove && \
-    apt-get clean
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Fix fetching issues
-RUN sed -i 's|http://|https://|g' /etc/apt/sources.list
-RUN apt-get update
-
-# Install useful languages & tools
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false -y \
-    apktool \
-    braa \
-    curl \
-    dex2jar \
-    dirb \
-    git \
+# Install core tools in a single layer for efficiency
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build tools (for Python packages with C extensions)
+    build-essential \
+    # Programming languages
     golang \
-    iputils-ping \
-    lsof \
-    ltrace \
-    net-tools \
-    netcat-traditional \
-    nikto \
-    nmap \
     nodejs \
     npm \
-    proxychains \
     python3-pip \
-    responder \
-    snmp-check \
+    python3-venv \
+    python3-dev \
+    # Core security tools
+    nmap \
+    nikto \
+    dirb \
     sqlmap \
-    strace \
-    tor \
-    uniscan \
-    vim \
+    # Network tools
+    curl \
     wget \
     whois \
-    wireshark \
-    zsh
+    netcat-traditional \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    proxychains4 \
+    tor \
+    # Reversing
+    apktool \
+    dex2jar \
+    # Sniffing/MITM
+    responder \
+    # Misc utilities
+    git \
+    vim \
+    zsh \
+    jq \
+    lsof \
+    strace \
+    ltrace \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install knockpy
-WORKDIR /root
-RUN git clone https://github.com/guelfoweb/knock.git
-RUN cd knock
-RUN pip3 install -r requirements.txt
-RUN python3 setup.py install
+# Install Go-based tools (security + API scanning)
+RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    go install github.com/ffuf/ffuf/v2@latest && \
+    nuclei -update-templates && \
+    cp /root/go/bin/* /usr/local/bin/
 
-# Install the latest nuclei engine and templates
-RUN sh -c "$(go install github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest)"
+# Install kiterunner from release binary (Go install path changed)
+RUN curl -sL https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_arm64.tar.gz | \
+    tar xzf - -C /usr/local/bin kr || true
+
+# Install Python tools (API scanning)
+RUN pip3 install --break-system-packages --no-cache-dir \
+    shodan \
+    dnspython \
+    requests \
+    arjun
+
+# Install Node.js tools (API testing)
+RUN npm install -g newman
 
 # Configure proxychains with Tor
-COPY config/proxychains.conf /etc/proxychains.conf
+COPY config/proxychains.conf /etc/proxychains4.conf
 
-# Setup ZSH and set it as the default shell
-# To reload ZSH - omz reload
-RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-COPY config/.zshrc .
+# Setup Oh-My-Zsh
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+COPY config/.zshrc /root/.zshrc
+
+# Default shell
+SHELL ["/bin/zsh", "-c"]
 ENTRYPOINT ["/bin/zsh"]
-
-# Cleanup
-RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
-    apt-get autoremove -y && \
-    apt-get autoclean && \
-    apt-get clean

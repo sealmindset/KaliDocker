@@ -1,0 +1,153 @@
+services:
+  # =============================================================================
+  # Next.js Web UI
+  # =============================================================================
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "${UI_PORT:-3443}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - kali-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # FastAPI Backend
+  # =============================================================================
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://kali:kali@postgres:5432/kalidocker}
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - kali-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # PostgreSQL Database
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-kali}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kali}
+      - POSTGRES_DB=${POSTGRES_DB:-kalidocker}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - kali-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kali}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # Kali Linux - Base Tools
+  # =============================================================================
+  kali:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    volumes:
+      - kali-data:/root
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - http_proxy=${HTTP_PROXY:-}
+      - https_proxy=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,postgres,api}
+      - no_proxy=${NO_PROXY:-localhost,127.0.0.1,postgres,api}
+    networks:
+      - kali-network
+    profiles:
+      - tools
+
+  # =============================================================================
+  # Kali Linux - With Metasploit
+  # =============================================================================
+  kali-msf:
+    build:
+      context: .
+      dockerfile: Dockerfile.msf
+    stdin_open: true
+    tty: true
+    volumes:
+      - kali-data:/root
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/kalidocker}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-kalidocker}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - http_proxy=${HTTP_PROXY:-}
+      - https_proxy=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,postgres,api}
+      - no_proxy=${NO_PROXY:-localhost,127.0.0.1,postgres,api}
+    networks:
+      - kali-network
+    profiles:
+      - msf
+
+  # =============================================================================
+  # MCP Server - Security Tools for AI Assistants
+  # =============================================================================
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - .:/app/project:ro
+    environment:
+      - KALIDOCKER_COMPOSE_PATH=/app/project
+      - KALIDOCKER_CONTAINER=kalidocker-kali-msf-1
+      - USE_DOCKER=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kali-network
+    profiles:
+      - mcp
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  kali-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    name: kalidocker-postgres-data
+  kali-data:
+    name: kalidocker-kali-data

@@ -1,67 +1,108 @@
-# Kali Linux latest with useful tools
-FROM kalilinux/kali-rolling
+# Kali Linux Rolling - Metasploit Edition
+# https://www.kali.org/docs/containers/official-kalilinux-docker-images/
+FROM kalilinux/kali-rolling:latest
 
-# Set working directory to /root
+LABEL maintainer="sealmindset" \
+    description="Kali Linux with Metasploit Framework" \
+    version="2.0"
+
+# Set environment
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    GOROOT=/usr/lib/go \
+    GOPATH=/root/go \
+    PATH=/root/go/bin:/usr/lib/go/bin:$PATH
+
 WORKDIR /root
 
-# Update
+# Update and upgrade to latest
 RUN apt-get update && \
-    apt-get -y dist-upgrade && \
+    apt-get -y full-upgrade && \
     apt-get -y autoremove && \
-    apt-get clean
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Fix fetching issues
-RUN sed -i 's|http://|https://|g' /etc/apt/sources.list
-RUN apt-get update
+# Install Metasploit Framework (large package, separate layer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    metasploit-framework \
+    postgresql-client \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Metasploit - avoid certificate issues
-RUN apt-get update -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false -y \
-    metasploit-framework 
-
-# Install useful languages & tools
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    apktool \
-    curl \
-    dex2jar \
-    dirb \
-    git \
+# Install core tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build tools
+    build-essential \
+    # Programming languages
     golang \
-    lsof \
-    ltrace \
-    net-tools \
-    netcat-traditional \
-    nikto \
-    nmap \
     nodejs \
     npm \
-    proxychains \
     python3-pip \
-    responder \
+    python3-venv \
+    python3-dev \
+    # Core security tools
+    nmap \
+    nikto \
+    dirb \
     sqlmap \
-    strace \
-    tor \
-    uniscan \
-    vim \
+    # Network tools
+    curl \
     wget \
     whois \
-    wireshark \
-    zsh
+    netcat-traditional \
+    net-tools \
+    iputils-ping \
+    dnsutils \
+    proxychains4 \
+    tor \
+    # Reversing
+    apktool \
+    dex2jar \
+    # Exploitation
+    exploitdb \
+    # Sniffing/MITM
+    responder \
+    # Misc utilities
+    git \
+    vim \
+    zsh \
+    jq \
+    lsof \
+    strace \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install the latest nuclei engine and templates
-RUN sh -c "$(go install github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest)"
+# Install Go-based tools (security + API scanning)
+RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    go install github.com/ffuf/ffuf/v2@latest && \
+    nuclei -update-templates && \
+    cp /root/go/bin/* /usr/local/bin/
+
+# Install kiterunner from release binary
+RUN curl -sL https://github.com/assetnote/kiterunner/releases/download/v1.0.2/kiterunner_1.0.2_linux_arm64.tar.gz | \
+    tar xzf - -C /usr/local/bin kr || true
+
+# Install Python tools (API scanning)
+RUN pip3 install --break-system-packages --no-cache-dir \
+    shodan \
+    dnspython \
+    requests \
+    arjun
+
+# Install Node.js tools (API testing)
+RUN npm install -g newman
 
 # Configure proxychains with Tor
-COPY config/proxychains.conf /etc/proxychains.conf
+COPY config/proxychains.conf /etc/proxychains4.conf
 
-# Setup ZSH and set it as the default shell
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-COPY config/.zshrc .
-ENTRYPOINT ["/usr/bin/zsh"]
+# Setup Oh-My-Zsh
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+COPY config/.zshrc /root/.zshrc
 
-# Cleanup
-RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
-    apt-get autoremove -y && \
-    apt-get autoclean && \
-    apt-get clean
+# Create entrypoint script in /usr/local/bin (avoids /root volume mount conflict)
+RUN printf '#!/bin/zsh\nmkdir -p /root/.msf4\nif [ -n "$DATABASE_URL" ]; then\n  echo "production:" > /root/.msf4/database.yml\n  echo "  adapter: postgresql" >> /root/.msf4/database.yml\n  echo "  database: ${POSTGRES_DB:-kalidocker}" >> /root/.msf4/database.yml\n  echo "  username: ${POSTGRES_USER:-postgres}" >> /root/.msf4/database.yml\n  echo "  password: ${POSTGRES_PASSWORD:-postgres}" >> /root/.msf4/database.yml\n  echo "  host: postgres" >> /root/.msf4/database.yml\n  echo "  port: 5432" >> /root/.msf4/database.yml\n  echo "  pool: 5" >> /root/.msf4/database.yml\nfi\nexec /bin/zsh "$@"\n' > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+
+# Default shell
+SHELL ["/bin/zsh", "-c"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
