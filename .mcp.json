@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "kalidocker-security": {
+            "command": "/Users/rvance/Documents/GitHub/KaliDocker/mcp/run_standalone.sh",
+            "args": [],
+            "env": {
+                "KALIDOCKER_COMPOSE_PATH": "/Users/rvance/Documents/GitHub/KaliDocker"
+            }
+        }
+    }
+}

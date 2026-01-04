@@ -116,14 +116,35 @@ docker compose --profile msf up -d
 
 ## Security Tools
 
-Available through the UI and API:
+### Pre-installed Tools
 
-- **Nmap** - Network discovery and security auditing
-- **Nuclei** - Fast vulnerability scanner
-- **SQLMap** - SQL injection detection
-- **Nikto** - Web server scanner
-- **Dirb** - Web content scanner
-- **Metasploit** - Penetration testing framework
+The container includes a **minimal toolset** for fast builds:
+
+| Tool | Purpose |
+|------|---------|
+| nmap | Network/port scanning |
+| nuclei | Vulnerability scanning |
+| ffuf | Web fuzzing |
+| arjun | API parameter discovery |
+| httpx | HTTP probing |
+| nikto, dirb, sqlmap | Web scanning |
+| metasploit | Exploitation framework |
+
+### Installing Additional Tools
+
+Need more tools? Install on-demand:
+
+```bash
+# Install a specific tool
+docker compose exec kali-msf apt update && apt install -y <tool-name>
+
+# Install a Kali metapackage (adds multiple tools)
+docker compose exec kali-msf apt install -y kali-tools-web
+```
+
+**Available metapackages:** `kali-tools-top10`, `kali-tools-web`, `kali-tools-exploitation`, `kali-tools-forensics`
+
+> **Note:** The base image is minimal. Kali has 600+ tools - install what you need.
 
 ## API Documentation
 
